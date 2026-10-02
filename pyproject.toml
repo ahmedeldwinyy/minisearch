@@ -10,7 +10,9 @@ requires-python = ">=3.11"
 dependencies = [
     "certifi>=2026.7.22",
     "matplotlib>=3.11.2",
+    "numpy>=2.4.6",
     "pandas>=3.0.6",
+    "scipy>=1.17.1",
 ]
 
 [project.scripts]
@@ -41,6 +43,10 @@ python_version = "3.11"
 strict = true
 mypy_path = "src"
 files = ["src", "scripts", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["scipy.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
