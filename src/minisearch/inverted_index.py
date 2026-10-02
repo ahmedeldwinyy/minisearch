@@ -42,5 +42,8 @@ class InvertedIndex:
     def num_docs(self) -> int:
         return len(self._document_terms)
 
+    def document_ids(self) -> list[str]:
+        return sorted(self._document_terms)
+
     def doc_freq(self, term: str) -> int:
         return len(self._postings.get(term, {}))
