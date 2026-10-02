@@ -50,3 +50,50 @@ def test_tokenize_has_requested_type_hints() -> None:
         "text": str,
         "return": list[str],
     }
+
+
+def test_tokenize_removes_tashkeel_range() -> None:
+    assert Tokenizer(stopwords=()).tokenize("ب\u064b\u0652") == ["ب"]
+
+
+def test_tokenize_removes_dagger_alef_mark() -> None:
+    assert Tokenizer(stopwords=()).tokenize("ه\u0670ذا") == ["هذا"]
+
+
+def test_tokenize_removes_tatweel() -> None:
+    assert Tokenizer(stopwords=()).tokenize("مـرحبا") == ["مرحبا"]
+
+
+def test_tokenize_unifies_alef_forms() -> None:
+    assert Tokenizer(stopwords=()).tokenize("أإآٱ") == ["اااا"]
+
+
+def test_tokenize_unifies_alef_maqsura() -> None:
+    assert Tokenizer(stopwords=()).tokenize("على") == ["علي"]
+
+
+def test_tokenize_converts_arabic_indic_digits() -> None:
+    assert Tokenizer(stopwords=()).tokenize("٠١٢٣٤٥٦٧٨٩") == ["0123456789"]
+
+
+def test_tokenize_preserves_ta_marbuta() -> None:
+    assert Tokenizer(stopwords=()).tokenize("مدرسة") == ["مدرسة"]
+
+
+def test_tokenize_keeps_diacritized_word_as_one_token() -> None:
+    assert Tokenizer(stopwords=()).tokenize("الْعَرَبِيَّة") == ["العربية"]
+
+
+def test_tokenize_mixed_english_and_arabic_sentence() -> None:
+    assert Tokenizer(stopwords=()).tokenize("MiniSearch، البَحْثُ ١٢٣") == [
+        "minisearch",
+        "البحث",
+        "123",
+    ]
+
+
+def test_arabic_normalization_leaves_english_tokens_unchanged() -> None:
+    assert Tokenizer(stopwords=()).tokenize("MiniSearch BRCA1") == [
+        "minisearch",
+        "brca1",
+    ]
