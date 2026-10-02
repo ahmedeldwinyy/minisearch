@@ -70,3 +70,18 @@ def evaluate(
     return {
         metric: total / labeled_query_count for metric, total in metric_totals.items()
     }
+
+
+def per_query_ndcg(
+    ranker: Ranker,
+    queries: Mapping[str, str],
+    qrels: Mapping[str, set[str]],
+    k: int = 10,
+) -> dict[str, float]:
+    scores: dict[str, float] = {}
+    for query_id, query in queries.items():
+        if query_id not in qrels:
+            continue
+        retrieved = [doc_id for doc_id, _ in ranker.rank(query, k)]
+        scores[query_id] = ndcg_at_k(retrieved, qrels[query_id], k)
+    return scores

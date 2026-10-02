@@ -3,6 +3,7 @@ import pytest
 from minisearch.evaluation import (
     evaluate,
     ndcg_at_k,
+    per_query_ndcg,
     precision_at_k,
     recall_at_k,
     reciprocal_rank,
@@ -78,3 +79,16 @@ def test_evaluate_averages_labeled_queries_only() -> None:
         "MRR": pytest.approx(0.5),
         "NDCG@2": pytest.approx(0.5),
     }
+
+
+def test_per_query_ndcg_returns_scores_only_for_labeled_queries() -> None:
+    ranker = FixedRanker(InvertedIndex())
+
+    scores = per_query_ndcg(
+        ranker,
+        queries={"q-1": "first", "q-2": "second"},
+        qrels={"q-1": {"doc-1"}},
+        k=2,
+    )
+
+    assert scores == {"q-1": 1.0}
