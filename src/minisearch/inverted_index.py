@@ -12,6 +12,10 @@ class InvertedIndex:
         self._postings: dict[str, dict[str, int]] = {}
         self._document_terms: dict[str, dict[str, int]] = {}
 
+    @property
+    def tokenizer(self) -> Tokenizer:
+        return self._tokenizer
+
     def add_document(self, doc: Document) -> None:
         if doc.id in self._document_terms:
             raise ValueError(f"Document ID {doc.id!r} already exists")
