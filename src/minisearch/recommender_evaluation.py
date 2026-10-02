@@ -83,6 +83,16 @@ def precision_recall_at_k(
     )
 
 
+def _rank_matrix_factorization_candidates(
+    model: MatrixFactorization,
+    user_id: str,
+    candidate_ids: Sequence[str],
+    k: int,
+) -> list[str]:
+    scores = {doc_id: model.predict_raw(user_id, doc_id) for doc_id in candidate_ids}
+    return [doc_id for doc_id, _ in top_k(scores, k)]
+
+
 def evaluate_history_strategy_precision(
     recommender: ColdStartStrategy,
     histories: Mapping[str, Sequence[Interaction]],
@@ -191,8 +201,9 @@ def evaluate_recommenders(
             for interaction in user_testing
             if interaction.rating >= 4
         }
-        mf_scores = {doc_id: model.predict(user_id, doc_id) for doc_id in candidate_ids}
-        mf_recommendations = [doc_id for doc_id, _ in top_k(mf_scores, k)]
+        mf_recommendations = _rank_matrix_factorization_candidates(
+            model, user_id, candidate_ids, k
+        )
         recommendations = {
             "matrix_factorization": mf_recommendations,
             **{

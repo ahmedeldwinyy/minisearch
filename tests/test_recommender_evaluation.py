@@ -4,6 +4,7 @@ from minisearch.matrix_factorization import MatrixFactorization
 from minisearch.recommender_evaluation import (
     PopularityRecommender,
     RandomRecommender,
+    _rank_matrix_factorization_candidates,
     evaluate_recommenders,
     precision_recall_at_k,
     rmse,
@@ -88,3 +89,21 @@ def test_evaluate_recommenders_compares_mf_and_baselines() -> None:
     assert results["matrix_factorization"].rmse is not None
     assert results["popularity"].rmse is None
     assert results["random"].rmse is None
+
+
+def test_mf_ranking_uses_raw_scores_before_prediction_clipping() -> None:
+    model = MatrixFactorization(n_factors=1, epochs=1, seed=5).fit(
+        [Interaction("u1", "d1", 5), Interaction("u1", "d2", 5)]
+    )
+    user_index = model.user_to_index["u1"]
+    model.user_biases[user_index] = 0.0
+    model.item_biases[model.item_to_index["d1"]] = 2.0
+    model.item_biases[model.item_to_index["d2"]] = 3.0
+
+    assert model.predict("u1", "d1") == 5.0
+    assert model.predict("u1", "d2") == 5.0
+    assert model.predict_raw("u1", "d1") < model.predict_raw("u1", "d2")
+    assert _rank_matrix_factorization_candidates(model, "u1", ["d1", "d2"], k=2) == [
+        "d2",
+        "d1",
+    ]
