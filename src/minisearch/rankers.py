@@ -1,7 +1,17 @@
+import heapq
 from abc import ABC, abstractmethod
 from math import log
 
 from minisearch.inverted_index import InvertedIndex
+
+
+def top_k(scores: dict[str, float], k: int) -> list[tuple[str, float]]:
+    """Select k results in O(n log k) time without sorting all scores."""
+    if k <= 0:
+        return []
+    return heapq.nsmallest(
+        k, scores.items(), key=lambda result: (-result[1], result[0])
+    )
 
 
 class Ranker(ABC):
@@ -39,4 +49,4 @@ class TFIDFRanker(Ranker):
                     term_frequency * inverse_document_frequency
                 )
 
-        return sorted(scores.items(), key=lambda result: (-result[1], result[0]))[:k]
+        return top_k(scores, k)
