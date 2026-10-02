@@ -4,7 +4,7 @@ import pytest
 
 from minisearch.document import Document
 from minisearch.inverted_index import InvertedIndex
-from minisearch.rankers import TFIDFRanker
+from minisearch.rankers import BM25Ranker, TFIDFRanker
 from minisearch.tokenizer import Tokenizer
 
 
@@ -52,3 +52,25 @@ def test_repeated_query_terms_repeat_their_score(index: InvertedIndex) -> None:
     repeated_score = ranker.rank("rare rare")[0][1]
 
     assert repeated_score == pytest.approx(2 * single_score)
+
+
+@pytest.mark.parametrize("ranker_type", [TFIDFRanker, BM25Ranker])
+def test_ranker_caches_query_and_k_and_invalidates_after_index_change(
+    index: InvertedIndex, ranker_type: type[TFIDFRanker] | type[BM25Ranker]
+) -> None:
+    ranker = ranker_type(index)
+    ranker._cached_rank.clear()
+    initial_hits = ranker._cached_rank.hits
+    initial_misses = ranker._cached_rank.misses
+
+    ranker.rank("rare", k=2)
+    ranker.rank("rare", k=2)
+    ranker.rank("rare", k=1)
+
+    assert ranker._cached_rank.hits == initial_hits + 1
+    assert ranker._cached_rank.misses == initial_misses + 2
+
+    index.add_document(Document(id="doc-4", title="rare", body=""))
+    ranker.rank("rare", k=2)
+
+    assert ranker._cached_rank.misses == initial_misses + 3

@@ -2,6 +2,7 @@ import heapq
 from abc import ABC, abstractmethod
 from math import log
 
+from minisearch.decorators import CachedFunction, lru_cache
 from minisearch.inverted_index import InvertedIndex
 
 
@@ -27,7 +28,19 @@ class Ranker(ABC):
 class TFIDFRanker(Ranker):
     """Score(d, q) = sum_t (1 + log(freq(t, d))) * log(N / df(t))."""
 
+    def __init__(self, index: InvertedIndex) -> None:
+        super().__init__(index)
+        self._cached_rank: CachedFunction[[str, int], list[tuple[str, float]]] = (
+            lru_cache(
+                max_size=256,
+                key=lambda query, k=10: (self.index.version, query, k),
+            )(self._rank_uncached)
+        )
+
     def rank(self, query: str, k: int = 10) -> list[tuple[str, float]]:
+        return self._cached_rank(query, k)
+
+    def _rank_uncached(self, query: str, k: int = 10) -> list[tuple[str, float]]:
         if k <= 0:
             return []
 
@@ -65,6 +78,12 @@ class BM25Ranker(Ranker):
         self._average_document_length = 0.0
         self._cached_index_version = -1
         self._refresh_average_document_length()
+        self._cached_rank: CachedFunction[[str, int], list[tuple[str, float]]] = (
+            lru_cache(
+                max_size=256,
+                key=lambda query, k=10: (self.index.version, query, k),
+            )(self._rank_uncached)
+        )
 
     def _refresh_average_document_length(self) -> None:
         if self._cached_index_version == self.index.version:
@@ -80,6 +99,9 @@ class BM25Ranker(Ranker):
         self._cached_index_version = self.index.version
 
     def rank(self, query: str, k: int = 10) -> list[tuple[str, float]]:
+        return self._cached_rank(query, k)
+
+    def _rank_uncached(self, query: str, k: int = 10) -> list[tuple[str, float]]:
         if k <= 0:
             return []
 
