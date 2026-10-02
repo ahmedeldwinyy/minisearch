@@ -7,6 +7,7 @@ import numpy as np
 from scipy.sparse import csr_matrix, diags
 
 from minisearch.inverted_index import InvertedIndex
+from minisearch.rankers import top_k
 
 
 @dataclass(frozen=True)
@@ -56,3 +57,52 @@ class TFIDFDocumentVectors:
             doc_to_row=doc_to_row,
             term_to_column=term_to_column,
         )
+
+    def more_like_this(self, doc_id: str, k: int = 10) -> list[tuple[str, float]]:
+        row = self._get_document_row(doc_id)
+        if k <= 0:
+            return []
+
+        similarities = (self.matrix.getrow(row) @ self.matrix.T).toarray().ravel()
+        scores = {
+            candidate_id: float(similarities[candidate_row])
+            for candidate_row, candidate_id in enumerate(self.doc_ids)
+            if candidate_row != row
+        }
+        return top_k(scores, k)
+
+    def more_like_this_loop(self, doc_id: str, k: int = 10) -> list[tuple[str, float]]:
+        row = self._get_document_row(doc_id)
+        if k <= 0:
+            return []
+
+        query_start = self.matrix.indptr[row]
+        query_end = self.matrix.indptr[row + 1]
+        query_columns = self.matrix.indices[query_start:query_end]
+        query_values = self.matrix.data[query_start:query_end]
+        scores: dict[str, float] = {}
+
+        for candidate_row, candidate_id in enumerate(self.doc_ids):
+            if candidate_row == row:
+                continue
+
+            candidate_start = self.matrix.indptr[candidate_row]
+            candidate_end = self.matrix.indptr[candidate_row + 1]
+            candidate_columns = self.matrix.indices[candidate_start:candidate_end]
+            candidate_values = self.matrix.data[candidate_start:candidate_end]
+            candidate_vector = dict(
+                zip(candidate_columns, candidate_values, strict=True)
+            )
+            score = sum(
+                float(value) * float(candidate_vector.get(column, 0.0))
+                for column, value in zip(query_columns, query_values, strict=True)
+            )
+            scores[candidate_id] = score
+
+        return top_k(scores, k)
+
+    def _get_document_row(self, doc_id: str) -> int:
+        try:
+            return self.doc_to_row[doc_id]
+        except KeyError as error:
+            raise KeyError(f"Unknown document ID {doc_id!r}") from error
