@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import blake2b
 from typing import Protocol
@@ -17,6 +18,14 @@ from minisearch.synthetic import Interaction
 class RecommendationStrategy(Protocol):
     def recommend(
         self, user_id: str, seen_doc_ids: set[str], k: int = 10
+    ) -> list[str]: ...
+
+
+class ColdStartStrategy(Protocol):
+    def strategy_for(self, user_id: str, history: Sequence[Interaction]) -> str: ...
+
+    def recommend(
+        self, user_id: str, history: Sequence[Interaction], k: int = 10
     ) -> list[str]: ...
 
 
@@ -72,6 +81,35 @@ def precision_recall_at_k(
         binary_precision_at_k(retrieved, relevant, k),
         binary_recall_at_k(retrieved, relevant, k),
     )
+
+
+def evaluate_history_strategy_precision(
+    recommender: ColdStartStrategy,
+    histories: Mapping[str, Sequence[Interaction]],
+    heldout: Mapping[str, Sequence[Interaction]],
+    k: int = 10,
+) -> dict[str, float]:
+    if k <= 0:
+        raise ValueError("k must be positive")
+    precision_sums: dict[str, float] = defaultdict(float)
+    strategy_counts: Counter[str] = Counter()
+
+    for user_id, test_ratings in heldout.items():
+        history = histories.get(user_id, ())
+        strategy = recommender.strategy_for(user_id, history)
+        recommendations = recommender.recommend(user_id, history, k)
+        relevant_doc_ids = {
+            interaction.doc_id
+            for interaction in test_ratings
+            if interaction.rating >= 4
+        }
+        precision_sums[strategy] += len(set(recommendations[:k]) & relevant_doc_ids) / k
+        strategy_counts[strategy] += 1
+
+    return {
+        strategy: precision_sums[strategy] / count
+        for strategy, count in strategy_counts.items()
+    }
 
 
 class PopularityRecommender:

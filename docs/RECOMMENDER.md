@@ -22,11 +22,36 @@ The vectorized implementation was 48.1x faster in this run.
 
 ## Synthetic Recommendation Evaluation
 
-Further recommender results will be added after synthetic interactions,
-matrix-factorization training, and cold-start evaluation are implemented.
+SciFact contains documents but no user-rating data. All user IDs, topic preferences, and ratings below are synthetic, generated with fixed seeds from 5,183 documents; results validate the code and math, not real-world recommendation quality.
 
-## Topic Classifier
+The matrix-factorization and baseline comparison uses the held-out ratings of 1,000 synthetic users.
 
-Naive Bayes topic labels come from clustering the document vectors. Held-out
-accuracy demonstrates that the classifier learns these generated labels; it is
-not a measure of real query intent.
+### Matrix Factorization vs Baselines
+
+| Strategy | Test RMSE | Precision@10 | Recall@10 |
+| --- | ---: | ---: | ---: |
+| popularity | N/A | 0.010 | 0.016 |
+| random | N/A | 0.001 | 0.002 |
+| matrix_factorization | 1.004 | 0.001 | 0.002 |
+
+### Cold-Start Precision@10
+
+| History ratings | Strategy | Precision@10 |
+| ---: | --- | ---: |
+| 0 | popularity | 0.011 |
+| 1 | content | 0.001 |
+| 1 | popularity | 0.010 |
+| 3 | content | 0.002 |
+| 3 | popularity | 0.000 |
+| 5 | matrix_factorization | 0.002 |
+| 20 | matrix_factorization | 0.001 |
+
+Each user is held out from global training and reveals only the listed number of their training ratings. The strategy column shows the policy actually used; a 1–4 rating user without a liked item falls back to popularity.
+
+### Plots
+
+![Matrix factorization training and validation loss](mf-loss.png)
+
+![Precision@10 by revealed history size](cold-start-precision.png)
+
+Naive Bayes accuracy is measured against D3 cluster labels. It reached 0.068 accuracy versus the 0.103 majority-class baseline on a held-out 20% of documents. These generated labels demonstrate classifier behavior, not real query intent.
