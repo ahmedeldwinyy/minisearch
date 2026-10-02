@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import shutil
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,12 +10,13 @@ from zipfile import ZipFile
 
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy.typing import NDArray
 
 from minisearch.document import Document
 from minisearch.inverted_index import InvertedIndex
 from minisearch.loader import load_documents
 from minisearch.matrix_factorization import MatrixFactorization
-from minisearch.naive_bayes import evaluate_topic_classifier
+from minisearch.naive_bayes import MultinomialNaiveBayes, evaluate_topic_classifier
 from minisearch.recommender import Recommender
 from minisearch.recommender_evaluation import (
     PopularityRecommender,
@@ -53,6 +54,20 @@ class ColdStartRow:
     history_size: int
     strategy: str
     precision_at_10: float
+
+
+def align_documents_and_topics(
+    documents: Sequence[Document],
+    vectors: TFIDFDocumentVectors,
+    topic_labels: NDArray[np.int64],
+) -> tuple[list[Document], NDArray[np.int64]]:
+    if topic_labels.size != len(vectors.doc_ids):
+        raise ValueError("topic labels must match the vector row count")
+    documents_by_id = {document.id: document for document in documents}
+    if set(documents_by_id) != set(vectors.doc_ids):
+        raise ValueError("documents and vector rows must contain the same IDs")
+    aligned_documents = [documents_by_id[doc_id] for doc_id in vectors.doc_ids]
+    return aligned_documents, topic_labels.copy()
 
 
 def format_recommender_results_table(
@@ -239,8 +254,10 @@ def _update_report(
     cold_start_rows: Sequence[ColdStartRow],
     user_count: int,
     document_count: int,
+    topic_training_accuracy: float,
     topic_accuracy: float,
     topic_majority_accuracy: float,
+    topic_words: Mapping[int, Sequence[tuple[str, int]]],
 ) -> None:
     existing = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
     section_marker = "## Synthetic Recommendation Evaluation"
@@ -284,8 +301,23 @@ def _update_report(
             "Naive Bayes accuracy is measured against D3 cluster labels. It "
             f"reached {topic_accuracy:.3f} accuracy versus the "
             f"{topic_majority_accuracy:.3f} majority-class baseline on a held-out "
-            "20% of documents. These generated labels demonstrate classifier "
-            "behavior, not real query intent.",
+            "20% of documents; training accuracy is "
+            f"{topic_training_accuracy:.3f}. The earlier held-out accuracy was "
+            "0.068 because 4,895 of 5,183 cluster labels were paired with the "
+            "wrong corpus documents: vector rows are sorted by document ID, "
+            "while the loader preserved corpus order. These generated labels "
+            "demonstrate classifier behavior, not real query intent.",
+            "",
+            "Top training words for the first three topic IDs:",
+            "",
+            "| Topic | Top 10 words by training frequency |",
+            "| ---: | --- |",
+            *[
+                f"| {topic} | "
+                + ", ".join(f"{word} ({count})" for word, count in words)
+                + " |"
+                for topic, words in topic_words.items()
+            ],
             "",
         ]
     )
@@ -300,23 +332,49 @@ def run_recommendation_evaluation(
     if not archive_path.is_file():
         raise FileNotFoundError(f"SciFact archive not found at {archive_path}")
 
-    documents = _load_corpus(archive_path)
-    document_ids = [document.id for document in documents]
-    index = _build_index(documents)
+    corpus_documents = _load_corpus(archive_path)
+    index = _build_index(corpus_documents)
     vectors = TFIDFDocumentVectors.from_index(index)
-    document_topics = SphericalKMeans(
+    row_topic_labels = SphericalKMeans(
         n_clusters=20, max_iter=20, seed=seed
     ).fit_predict(vectors.matrix)
+    documents, document_topics = align_documents_and_topics(
+        corpus_documents, vectors, row_topic_labels
+    )
+    document_ids = list(vectors.doc_ids)
     topic_split_rng = np.random.default_rng(seed + 7)
     topic_permutation = topic_split_rng.permutation(len(documents))
     topic_test_count = max(1, round(len(documents) * 0.2))
     topic_test_indices = topic_permutation[:topic_test_count]
     topic_train_indices = topic_permutation[topic_test_count:]
+    topic_training_documents = [documents[int(index)] for index in topic_train_indices]
+    topic_training_labels = [
+        int(document_topics[index]) for index in topic_train_indices
+    ]
+    topic_testing_documents = [documents[int(index)] for index in topic_test_indices]
+    topic_testing_labels = [int(document_topics[index]) for index in topic_test_indices]
+    topic_classifier = MultinomialNaiveBayes(tokenizer=index.tokenizer).fit(
+        topic_training_documents, topic_training_labels
+    )
+    topic_training_accuracy = sum(
+        topic_classifier.predict(f"{document.title} {document.body}") == label
+        for document, label in zip(
+            topic_training_documents, topic_training_labels, strict=True
+        )
+    ) / len(topic_training_labels)
+    topic_counts = Counter(topic_training_labels)
+    selected_topic_ids = sorted(
+        topic_counts, key=lambda topic: (-topic_counts[topic], topic)
+    )[:3]
+    topic_words = {
+        topic: topic_classifier.class_term_counts_[topic].most_common(10)
+        for topic in selected_topic_ids
+    }
     topic_evaluation = evaluate_topic_classifier(
-        [documents[int(index)] for index in topic_train_indices],
-        [int(document_topics[index]) for index in topic_train_indices],
-        [documents[int(index)] for index in topic_test_indices],
-        [int(document_topics[index]) for index in topic_test_indices],
+        topic_training_documents,
+        topic_training_labels,
+        topic_testing_documents,
+        topic_testing_labels,
         tokenizer=index.tokenizer,
     )
     synthetic_data = generate_synthetic_interactions(
@@ -352,8 +410,10 @@ def run_recommendation_evaluation(
         cold_start_rows,
         user_count=len(user_ids),
         document_count=len(document_ids),
+        topic_training_accuracy=topic_training_accuracy,
         topic_accuracy=topic_evaluation.accuracy,
         topic_majority_accuracy=topic_evaluation.majority_baseline_accuracy,
+        topic_words=topic_words,
     )
     return recommender_results, cold_start_rows
 

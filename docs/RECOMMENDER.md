@@ -30,21 +30,21 @@ The matrix-factorization and baseline comparison uses the held-out ratings of 1,
 
 | Strategy | Test RMSE | Precision@10 | Recall@10 |
 | --- | ---: | ---: | ---: |
-| popularity | N/A | 0.010 | 0.016 |
+| popularity | N/A | 0.010 | 0.017 |
 | random | N/A | 0.001 | 0.002 |
-| matrix_factorization | 1.004 | 0.001 | 0.002 |
+| matrix_factorization | 1.004 | 0.002 | 0.004 |
 
 ### Cold-Start Precision@10
 
 | History ratings | Strategy | Precision@10 |
 | ---: | --- | ---: |
 | 0 | popularity | 0.011 |
-| 1 | content | 0.001 |
+| 1 | content | 0.007 |
 | 1 | popularity | 0.010 |
-| 3 | content | 0.002 |
+| 3 | content | 0.008 |
 | 3 | popularity | 0.000 |
 | 5 | matrix_factorization | 0.002 |
-| 20 | matrix_factorization | 0.001 |
+| 20 | matrix_factorization | 0.004 |
 
 Each user is held out from global training and reveals only the listed number of their training ratings. The strategy column shows the policy actually used; a 1–4 rating user without a liked item falls back to popularity.
 
@@ -54,4 +54,12 @@ Each user is held out from global training and reveals only the listed number of
 
 ![Precision@10 by revealed history size](cold-start-precision.png)
 
-Naive Bayes accuracy is measured against D3 cluster labels. It reached 0.068 accuracy versus the 0.103 majority-class baseline on a held-out 20% of documents. These generated labels demonstrate classifier behavior, not real query intent.
+Naive Bayes accuracy is measured against D3 cluster labels. It reached 0.759 accuracy versus the 0.103 majority-class baseline on a held-out 20% of documents; training accuracy is 0.972. The earlier held-out accuracy was 0.068 because 4,895 of 5,183 cluster labels were paired with the wrong corpus documents: vector rows are sorted by document ID, while the loader preserved corpus order. These generated labels demonstrate classifier behavior, not real query intent.
+
+Top training words for the first three topic IDs:
+
+| Topic | Top 10 words by training frequency |
+| ---: | --- |
+| 15 | with (2165), 0 (1893), for (1595), were (1332), 1 (1317), was (1209), patients (1134), or (978), 2 (870), 95 (793) |
+| 13 | cells (838), that (788), cell (684), cancer (664), is (598), by (594), with (530), tumor (472), we (451), for (427) |
+| 11 | for (872), is (707), that (620), with (553), are (483), as (450), this (401), be (380), on (377), by (352) |

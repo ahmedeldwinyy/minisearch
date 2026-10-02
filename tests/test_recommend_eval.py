@@ -1,6 +1,12 @@
+import numpy as np
+
+from minisearch.document import Document
+from minisearch.inverted_index import InvertedIndex
 from minisearch.recommender_evaluation import RecommenderMetrics
+from minisearch.vectors import TFIDFDocumentVectors
 from scripts.recommend_eval import (
     ColdStartRow,
+    align_documents_and_topics,
     format_cold_start_table,
     format_recommender_results_table,
 )
@@ -36,3 +42,33 @@ def test_cold_start_table_shows_history_size_and_selected_strategy() -> None:
     assert "| 0 | popularity | 0.100 |" in table
     assert "| 3 | content | 0.200 |" in table
     assert "| 5 | matrix_factorization | 0.300 |" in table
+
+
+def test_topic_labels_and_split_follow_vector_document_order() -> None:
+    corpus_order = [
+        Document(id="doc-z", title="zebra", body=""),
+        Document(id="doc-a", title="apple", body=""),
+    ]
+    index = InvertedIndex()
+    for document in corpus_order:
+        index.add_document(document)
+    vectors = TFIDFDocumentVectors.from_index(index)
+    cluster_labels_by_vector_row = np.array([10, 20], dtype=np.int64)
+
+    aligned_documents, aligned_labels = align_documents_and_topics(
+        corpus_order, vectors, cluster_labels_by_vector_row
+    )
+    train_positions = [1]
+    test_positions = [0]
+    training_pairs = [
+        (aligned_documents[position].id, aligned_labels[position])
+        for position in train_positions
+    ]
+    testing_pairs = [
+        (aligned_documents[position].id, aligned_labels[position])
+        for position in test_positions
+    ]
+
+    assert [document.id for document in aligned_documents] == list(vectors.doc_ids)
+    assert training_pairs == [("doc-z", np.int64(20))]
+    assert testing_pairs == [("doc-a", np.int64(10))]
