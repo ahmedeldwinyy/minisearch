@@ -11,10 +11,15 @@ class InvertedIndex:
         self._tokenizer = tokenizer if tokenizer is not None else Tokenizer()
         self._postings: dict[str, dict[str, int]] = {}
         self._document_terms: dict[str, dict[str, int]] = {}
+        self._version = 0
 
     @property
     def tokenizer(self) -> Tokenizer:
         return self._tokenizer
+
+    @property
+    def version(self) -> int:
+        return self._version
 
     def add_document(self, doc: Document) -> None:
         if doc.id in self._document_terms:
@@ -24,6 +29,7 @@ class InvertedIndex:
         self._document_terms[doc.id] = dict(terms)
         for term, frequency in terms.items():
             self._postings.setdefault(term, {})[doc.id] = frequency
+        self._version += 1
 
     def postings(self, term: str) -> list[Posting]:
         return sorted(self._postings.get(term, {}).items())
@@ -38,6 +44,7 @@ class InvertedIndex:
             del term_postings[doc_id]
             if not term_postings:
                 del self._postings[term]
+        self._version += 1
 
     def doc_length(self, doc_id: str) -> int:
         return sum(self._document_terms[doc_id].values())
