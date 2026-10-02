@@ -24,3 +24,9 @@ The vectorized implementation was 48.1x faster in this run.
 
 Further recommender results will be added after synthetic interactions,
 matrix-factorization training, and cold-start evaluation are implemented.
+
+## Topic Classifier
+
+Naive Bayes topic labels come from clustering the document vectors. Held-out
+accuracy demonstrates that the classifier learns these generated labels; it is
+not a measure of real query intent.
