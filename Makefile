@@ -1,4 +1,4 @@
-.PHONY: install lint format typecheck test check pre-commit benchmark
+.PHONY: install lint format typecheck test check pre-commit benchmark evaluate
 
 install:
 	uv sync
@@ -22,3 +22,6 @@ pre-commit:
 
 benchmark:
 	uv run python scripts/benchmark.py
+
+evaluate:
+	uv run python scripts/evaluate.py
