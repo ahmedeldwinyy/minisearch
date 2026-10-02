@@ -23,6 +23,7 @@ from minisearch.recommender_evaluation import (
     RecommenderMetrics,
     evaluate_history_strategy_precision,
     evaluate_recommenders,
+    rmse,
     split_interactions_by_user,
 )
 from minisearch.synthetic import (
@@ -38,14 +39,83 @@ RANDOM_SEED = 2026
 HISTORY_SIZES = (0, 1, 3, 5, 20)
 
 
-def _new_matrix_factorization(seed: int) -> MatrixFactorization:
+@dataclass(frozen=True)
+class MFParameters:
+    n_factors: int
+    lr: float
+    reg: float
+    epochs: int
+
+
+@dataclass(frozen=True)
+class MFTuningResult:
+    parameters: MFParameters
+    validation_rmse: float
+    validation_count: int
+    model: MatrixFactorization
+
+
+MF_PARAMETER_GRID = (
+    MFParameters(16, 0.015, 0.03, 12),
+    MFParameters(24, 0.015, 0.03, 12),
+    MFParameters(24, 0.03, 0.03, 24),
+    MFParameters(32, 0.03, 0.01, 24),
+)
+
+
+def _new_matrix_factorization(
+    seed: int, parameters: MFParameters = MF_PARAMETER_GRID[1]
+) -> MatrixFactorization:
     return MatrixFactorization(
-        n_factors=24,
-        lr=0.015,
-        reg=0.03,
-        epochs=12,
+        n_factors=parameters.n_factors,
+        lr=parameters.lr,
+        reg=parameters.reg,
+        epochs=parameters.epochs,
         batch_size=512,
         seed=seed,
+    )
+
+
+def tune_matrix_factorization(
+    training: Sequence[Interaction], document_ids: Sequence[str], seed: int
+) -> MFTuningResult:
+    inner_training, validation = split_interactions_by_user(
+        list(training), test_fraction=0.2, seed=seed
+    )
+    if not validation:
+        raise ValueError("training data must yield a non-empty validation split")
+
+    user_ids = sorted({interaction.user_id for interaction in training})
+    candidates: list[tuple[float, MFParameters, MatrixFactorization]] = []
+    for grid_index, parameters in enumerate(MF_PARAMETER_GRID):
+        model = _new_matrix_factorization(seed + grid_index, parameters).fit(
+            inner_training,
+            user_ids=user_ids,
+            item_ids=document_ids,
+            validation=validation,
+        )
+        actual = [float(interaction.rating) for interaction in validation]
+        predicted = [
+            model.predict(interaction.user_id, interaction.doc_id)
+            for interaction in validation
+        ]
+        candidates.append((rmse(actual, predicted), parameters, model))
+
+    validation_rmse, parameters, model = min(
+        candidates,
+        key=lambda candidate: (
+            candidate[0],
+            candidate[1].n_factors,
+            candidate[1].lr,
+            candidate[1].reg,
+            candidate[1].epochs,
+        ),
+    )
+    return MFTuningResult(
+        parameters=parameters,
+        validation_rmse=validation_rmse,
+        validation_count=len(validation),
+        model=model,
     )
 
 
@@ -140,6 +210,7 @@ def _cold_start_rows(
     training: list[Interaction],
     testing: list[Interaction],
     seed: int,
+    mf_parameters: MFParameters,
 ) -> list[ColdStartRow]:
     training_by_user: dict[str, list[Interaction]] = defaultdict(list)
     testing_by_user: dict[str, list[Interaction]] = defaultdict(list)
@@ -180,7 +251,7 @@ def _cold_start_rows(
         if not visible_training:
             raise ValueError("cold-start training data must not be empty")
 
-        model = _new_matrix_factorization(seed + history_size)
+        model = _new_matrix_factorization(seed + history_size, mf_parameters)
         if history_size >= 5:
             model.fit(
                 visible_training,
@@ -258,6 +329,9 @@ def _update_report(
     topic_accuracy: float,
     topic_majority_accuracy: float,
     topic_words: Mapping[int, Sequence[tuple[str, int]]],
+    mf_parameters: MFParameters,
+    mf_validation_rmse: float,
+    mf_validation_count: int,
 ) -> None:
     existing = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
     section_marker = "## Synthetic Recommendation Evaluation"
@@ -278,6 +352,13 @@ def _update_report(
             "",
             f"The matrix-factorization and baseline comparison uses the held-out "
             f"ratings of {user_count:,} synthetic users.",
+            "",
+            "MF settings were selected by validation RMSE on a 20% per-user split "
+            f"of outer training ratings only: n_factors={mf_parameters.n_factors}, "
+            f"lr={mf_parameters.lr:g}, reg={mf_parameters.reg:g}, "
+            f"epochs={mf_parameters.epochs} (validation RMSE "
+            f"{mf_validation_rmse:.3f} across {mf_validation_count:,} ratings). "
+            "The held-out test split was not used for parameter selection.",
             "",
             "### Matrix Factorization vs Baselines",
             "",
@@ -383,14 +464,10 @@ def run_recommendation_evaluation(
     interactions = list(synthetic_data.interactions)
     training, testing = split_interactions_by_user(interactions, seed=seed + 2)
     user_ids = sorted(synthetic_data.user_topics)
-    loss_model = _new_matrix_factorization(seed + 3).fit(
-        training,
-        user_ids=user_ids,
-        item_ids=document_ids,
-        validation=testing,
-    )
+    tuning = tune_matrix_factorization(training, document_ids, seed + 8)
+    loss_model = tuning.model
     recommender_results = evaluate_recommenders(
-        _new_matrix_factorization(seed + 4),
+        _new_matrix_factorization(seed + 4, tuning.parameters),
         training,
         testing,
         document_ids,
@@ -398,7 +475,7 @@ def run_recommendation_evaluation(
         seed=seed + 5,
     )
     cold_start_rows = _cold_start_rows(
-        vectors, document_ids, training, testing, seed + 6
+        vectors, document_ids, training, testing, seed + 6, tuning.parameters
     )
 
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -414,6 +491,9 @@ def run_recommendation_evaluation(
         topic_accuracy=topic_evaluation.accuracy,
         topic_majority_accuracy=topic_evaluation.majority_baseline_accuracy,
         topic_words=topic_words,
+        mf_parameters=tuning.parameters,
+        mf_validation_rmse=tuning.validation_rmse,
+        mf_validation_count=tuning.validation_count,
     )
     return recommender_results, cold_start_rows
 
@@ -422,6 +502,7 @@ def main() -> None:
     results, cold_start_rows = run_recommendation_evaluation()
     print("Synthetic MF vs baseline results:")
     print(format_recommender_results_table(results))
+    print("\nMF grid selection details are saved to RECOMMENDER.md.")
     print("\nCold-start results:")
     print(format_cold_start_table(cold_start_rows))
     print(f"\nArtifacts saved under {PROJECT_ROOT / 'docs'}")

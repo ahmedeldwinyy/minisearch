@@ -26,6 +26,8 @@ SciFact contains documents but no user-rating data. All user IDs, topic preferen
 
 The matrix-factorization and baseline comparison uses the held-out ratings of 1,000 synthetic users.
 
+MF settings were selected by validation RMSE on a 20% per-user split of outer training ratings only: n_factors=24, lr=0.015, reg=0.03, epochs=12 (validation RMSE 1.003 across 6,000 ratings). The held-out test split was not used for parameter selection.
+
 ### Matrix Factorization vs Baselines
 
 | Strategy | Test RMSE | Precision@10 | Recall@10 |

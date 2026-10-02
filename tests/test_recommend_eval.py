@@ -6,9 +6,11 @@ from minisearch.recommender_evaluation import RecommenderMetrics
 from minisearch.vectors import TFIDFDocumentVectors
 from scripts.recommend_eval import (
     ColdStartRow,
+    MFParameters,
     align_documents_and_topics,
     format_cold_start_table,
     format_recommender_results_table,
+    tune_matrix_factorization,
 )
 
 
@@ -72,3 +74,28 @@ def test_topic_labels_and_split_follow_vector_document_order() -> None:
     assert [document.id for document in aligned_documents] == list(vectors.doc_ids)
     assert training_pairs == [("doc-z", np.int64(20))]
     assert testing_pairs == [("doc-a", np.int64(10))]
+
+
+def test_mf_grid_tuning_is_seeded_and_uses_a_training_only_validation_split() -> None:
+    training = [
+        Document(id=f"d{user}-{item}", title="", body="")
+        for user in range(4)
+        for item in range(4)
+    ]
+    from minisearch.synthetic import Interaction
+
+    interactions = [
+        Interaction(f"u{user}", f"d{user}-{item}", 1 + (user + item) % 5)
+        for user in range(4)
+        for item in range(4)
+    ]
+    document_ids = [document.id for document in training]
+
+    first = tune_matrix_factorization(interactions, document_ids, seed=43)
+    second = tune_matrix_factorization(interactions, document_ids, seed=43)
+
+    assert isinstance(first.parameters, MFParameters)
+    assert first.parameters == second.parameters
+    assert first.validation_rmse == second.validation_rmse
+    assert first.validation_count > 0
+    assert first.model.validation_loss_
